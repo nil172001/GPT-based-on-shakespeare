@@ -81,7 +81,7 @@ class BigramLanguageModel(nn.Module):
         logits=self.token_embedding_table(idx) #(B,T,C) batch, time,channel
         B,T,C=logits.shape
         logits=logits.view(B*T,C) #this becomes 2 dimension so it can work on the cross_entropy
-        targets=targets.view(B*T) 
+        targets=targets.view(B*T) #1D , if u put -1 it will do the same
         loss=F.cross_entropy(logits,targets) #torch.nn.f library (wants the second input to be the channel)
 
         return logits, loss
