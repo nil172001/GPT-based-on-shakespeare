@@ -155,3 +155,18 @@ for iter in range(max_iters):
     #print(loss.item())
 context=torch.zeros((1,1),dtype=torch.long, device=device)
 print(decode(m.generate(context,max_new_tokens=100)[0].tolist()))
+
+B,T,C=4,8,2
+x=torch.randn(B,T,C)
+x.shape
+
+#we want x[b,t] = mean_{i<=t} x[b,i]
+xbow=torch.zeros((B,T,C)) #we are averaging a bag of words
+for b in range(B): #not very efficient now
+    for t in range(T): #iterating over time
+        xprev=x[b,:t+1] #(t,C)
+        xbow[b,t]=torch.mean(xprev,0) #average of time on the 0 dimension
+
+wei=torch.tril(torch.ones(T,T)) #short for weights
+wei=wei/wei.sum(1,keepdim=True)
+print(wei)
