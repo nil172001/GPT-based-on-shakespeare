@@ -190,3 +190,28 @@ xbow3=wei @ x
 #the tokens start looking at eachother
 
 '''version 4: self atention'''
+B,T,C = 4,8,32 # batch, time, channels
+x=torch.randn(B,T,C)
+
+#single head self-atention
+head_size=16
+key=nn.Linear(C,head_size,bias=False) #all the querys will dot product with the keys
+query=nn.Linear(C,head_size, bias=False)
+value=nn.Linear(C,head_size, bias=False)
+k=key(x)#B,T,16
+q=query(x) #B,T,16
+wei= q @ k.transpose(-2,-1) #we want to transpose just the last 2 dimensions
+#B,T,16 @ B,16,T ---> B,T,T and this are going to give us the affinities between the tokens
+tril=torch.tril(torch.ones(T,T))
+#wei=torch.zeros((T,T))
+wei=wei.masked_fill(tril==0, float('-inf')) #basically, when puting the inf, we tell them we dont want them to comunicate because we dont want to take them into account
+wei=F.softmax(wei,dim=-1)
+#out=wei @ x 
+v=value(x) #x is like private info of a token,
+out=wei @ v  #v is the vector we aggregate
+out.shape
+'''attention is a communication method, it can be seen as nodes in a graph looking at eachother and
+aggregating information wit a weighted sum.
+they have no notion of space. that is why we use the position embeding table'''
+#cross atention 
+#self attention is because it all comes from the same source, they come from x
