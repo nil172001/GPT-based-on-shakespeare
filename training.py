@@ -3,13 +3,14 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 #hyperparameters
-batch_size=32
-block_size=8
-max_iters=3000
-eval_interval=300
-learning_rate=1e-2
+batch_size=64
+block_size=264
+max_iters=5000
+eval_interval=500
+learning_rate=3e-4
 device="cuda" if torch.cuda.is_available() else "cpu"
 eval_iters=200
+n_embed=384
 #-------------------
 torch.manual_seed(1337)
 
@@ -56,10 +57,7 @@ for t in range(block_size):     #it starts with 1 token, and then it keeps addin
     target=y[t]
     print(f"when input is {context} the target: {target}")
 '''
-#hyperparameters
-torch.manual_seed(1337)
-batch_size=4 #how many independent sequences we process in parallel
-block_size=8
+
 
 def get_batch(split):
     #generate a small batch of data of input x and targets y
@@ -96,15 +94,20 @@ print(yb)
 
 #bygram module
 class BigramLanguageModel(nn.Module):
-    def __init__(self,vocab_size):
+    def __init__(self):
         super().__init__()
         #each token reads from logits for the next token from a lookup table
-        self.token_embedding_table=nn.Embedding(vocab_size,vocab_size)
-
+        self.token_embedding_table=nn.Embedding(vocab_size,n_embed) #table where each row respresents a vector of each token, that carry meaning
+        self.position_embedding_table=nn.Embedding(block_size,n_embed)
+        self.lm_head=nn.Linear(n_embed, vocab_size) #language model head, takes the embedding for each token and outputs a vector of logits (raw scores) for each token
+    #so lm_head gives you the vectors for the possible next letter/word
     def forward(self,idx,targets=None):
+        B,T =idx.shape
         #idx and targets are both (B,T) tensor of integers
-        logits=self.token_embedding_table(idx) #(B,T,C) batch, time,channel
-
+        tok_emb=self.token_embedding_table(idx) #(B,T,n_embed) each token becomes a vector of size n_embed
+        pos_emb= self.position_embedding_table(torch.arange(T,device=device))
+        x=tok_emb+pos_emb
+        logits=self.lm_head(x) #turns (B,T,n-embed) into (B,T,vocab_size)
         if targets is None:
             loss=None
         else:
@@ -128,7 +131,7 @@ class BigramLanguageModel(nn.Module):
             #append sampled index to the running sequence
             idx =torch.cat((idx,idx_next),dim=1) #(B,T+1)
         return idx
-model=BigramLanguageModel(vocab_size)
+model=BigramLanguageModel()
 m=model.to(device)
 #logits,loss=m(xb,yb)
 #print(logits.shape)
@@ -157,9 +160,10 @@ context=torch.zeros((1,1),dtype=torch.long, device=device)
 print(decode(m.generate(context,max_new_tokens=100)[0].tolist()))
 
 B,T,C=4,8,2
-x=torch.randn(B,T,C)
+x=torch.randn(B,T,C) #used later, its B,T,C
 x.shape
 
+'''first version, bad (nested loops)'''
 #we want x[b,t] = mean_{i<=t} x[b,i]
 xbow=torch.zeros((B,T,C)) #we are averaging a bag of words
 for b in range(B): #not very efficient now
@@ -167,6 +171,22 @@ for b in range(B): #not very efficient now
         xprev=x[b,:t+1] #(t,C)
         xbow[b,t]=torch.mean(xprev,0) #average of time on the 0 dimension
 
-wei=torch.tril(torch.ones(T,T)) #short for weights
-wei=wei/wei.sum(1,keepdim=True)
-print(wei)
+'''second version, updating weights'''
+#this is self-attention, previous step to having updated weights, because wei @ x lets each token look back
+wei=torch.tril(torch.ones(T,T)) #short for weights, creates a TxT triangular matrix
+wei=wei /wei.sum(1,keepdim=True) #normalizes each row so they sum one, turnning it into a casual averagin kernel
+xbow2 = wei @ x # basicaly does matrix multiplication (does broadcasting) and does (the B is added) B,T,T @ B, T, C
+#so xbow2 is B,T,C
+#@ does the same as np.matmul(A,B) or A.dot(B)
+torch.allclose(xbow,xbow2)
+
+'''third version, use softmax'''
+tril= torch.tril(torch.ones(T,T)) #trianglular matrix lower
+wei=torch.zeros((T,T)) #weight starts with a matrix of 0
+wei=wei.masked_fill(tril==0, float('-inf')) #changes wei to a triangular matrix of -infinite
+wei=F.softmax(wei,dim=-1) #in softmax u exponentiate all and then divide by the sum of all
+xbow3=wei @ x
+#we use it in self attention, they begin at 0 (the weights) its telling us how much of each token of the past do we want to agregate.
+#the tokens start looking at eachother
+
+'''version 4: self atention'''
